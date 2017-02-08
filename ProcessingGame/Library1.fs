@@ -17,15 +17,17 @@ Maybe add "Power" to the Processor to make it more challenging ...
 some processors are faster than others
 *)
 
-type Status<'a> =
-    | Ready of 'a    //ready to start processing
-    | Running of 'a  //not finished processing
-    | Waiting of 'a  //finished processing but program still not done
-    | Done of 'a     //finished processing and program is done
+
 
 type Ado = {id: Guid; size:int; adone:int; programId: Guid}
-type Processor = {id: Guid; size:int; ados: Status<Ado> list; power:int}
-type Program = {id: Guid; size:int; readyAdos: Map<Guid,Status<Ado>>}
+type Status =
+    | Ready of Ado    //ready to start processing
+    | Running of Ado  //not finished processing
+    | Waiting of Ado  //finished processing but program still not done
+    | Done of Ado     //finished processing and program is done
+
+type Processor = {id: Guid; size:int; ados: Status list; power:int}
+type Program = {id: Guid; size:int; readyAdos: Map<Guid,Status>}
 type Environment = {programs: Map<Guid,Program>; processors: Map<Guid,Processor>; ticks: int}
 type Request = 
     | Move of Ado * Processor
@@ -41,27 +43,27 @@ type MaybeBuilder() =
 
 type Game() = 
 
-    static let statusSize : (Status<Ado> -> int) = function 
+    static let statusSize : (Status -> int) = function 
         Ready y | Running y | Waiting y | Done y -> y.size
 
-    static let statusId : (Status<Ado> -> Guid) = function
+    static let statusId : (Status -> Guid) = function
         Ready y | Running y | Waiting y | Done y -> y.id
 
-    static let statusTransform (X : Ado -> Status<Ado>) = function
+    static let statusTransform (X : Ado -> Status) = function
         Ready y | Running y | Waiting y | Done y -> X y
 
-    static let statusValue : (Status<Ado> -> Ado) = function
+    static let statusValue : (Status -> Ado) = function
         Ready y | Running y | Waiting y | Done y -> y
 
-    static let statusValues (s : List<Status<Ado>>) : List<Ado> =
+    static let statusValues (s : List<Status>) : List<Ado> =
         s
         |> List.map statusValue
     
-    static let statusSizeRunWait : (Status<Ado> -> int) = function 
+    static let statusSizeRunWait : (Status -> int) = function 
         | Ready y | Done y -> 0
         | Running y | Waiting y -> y.size
 
-    static let size (ados : Status<Ado> list) = 
+    static let size (ados : Status list) = 
         ados 
         |> List.sumBy statusSizeRunWait 
     
@@ -100,24 +102,28 @@ type Game() =
 
     static let tickAdo power adoStatus =
         match adoStatus with
-        | Running ado' -> 
-            let ado'' = {ado' with adone=ado'.adone + power}
-            if ado''.adone >= ado''.size then Waiting ado''
-            else Running ado''
-        | _ -> adoStatus
+        | (Running ado') -> 
+            let minAdd = Math.Min((ado'.size - ado'.adone), power)
+            let leftOver = power - minAdd
+            let ado'' = {ado' with adone=ado'.adone + minAdd}
+            if ado''.adone >= ado''.size then (leftOver, Waiting ado'')
+            else (leftOver, Running ado'')
+        | _ -> (power, adoStatus)
 
     //transforms ado by ticking if the previous isn't currently Running
-    static let tickAdoFolder power state adoStatus =
-        match state with
-        | [] -> [tickAdo power adoStatus]
-        | f::rest -> 
-            match f with
-            | Running _ -> adoStatus::state //previous already running, so skip
-            | _ -> (tickAdo power adoStatus)::state
+    static let tickAdoProcess power ados =
+        let rec looper powerLeft ados' result = seq{
+            match powerLeft, ados' with
+            | _, [] -> yield result
+            | 0, _ -> yield ados'@(result |> List.rev)
+            | _, f::rest -> 
+                let powerLeft', adoStatus' = tickAdo powerLeft f
+                yield! looper powerLeft' rest (adoStatus'::result)
+        }
+        (looper power ados []) |> Seq.last
 
     static let tickProcessor k p : Processor =
-        let tickAdoFolder' = tickAdoFolder p.power
-        {p with ados = p.ados |> List.fold tickAdoFolder' []}
+        {p with ados = p.ados |> List.rev |> tickAdoProcess p.power} 
 
     static let theRunners (k, p) =
         p.ados
@@ -137,65 +143,65 @@ type Game() =
         |> Map.toSeq
         |> Seq.map (fun (k', s) -> statusValue s)
 
-    static let correctlyPlacedDone d adosRev =
-        let rec f front back =
-            match back with
-            | [] -> (front |> List.rev)@[d]  //this is the first one
-            | (Done x)::rest -> (front |> List.rev)@[d]@back //place 
-            | x::rest -> f (x::front) rest //still looking for a done or first []
-        f [] adosRev
-
-    static let donesFirstComparer x y =
-        match x, y with
-        | Done _, Done _ -> 0
-        | _, Done _ -> 1
-        | Done _, _ -> -1
-        | _, _ -> 0  
-
-    static let donesFirst (k : Guid) p = 
-        let ados = 
-            p.ados 
-            |> List.sortWith donesFirstComparer
-        {p with ados=ados}
-
     //order matters for processing, which is why dones are grouped together
-    static let transformDones dones k p =
-        let rec transformer result v =
-            match v with
-            | [] -> result |> List.rev
-            | (Waiting f)::rest when dones |> Set.contains f.programId ->
-                transformer ((Done f)::result) rest 
-            | f::rest -> transformer (f::result) rest 
-        {p with ados=transformer [] p.ados}
+    static let transformDones (dones : Guid list) p =
+        match dones.IsEmpty, p.ados.IsEmpty with
+        | _, true -> p
+        | true, _ -> p
+        | _, _ -> 
+            let switch ds = function
+                | Ready x -> Ready x
+                | Running x -> Running x
+                | Waiting x when ds |> List.exists (fun d -> d = x.programId) -> Done x
+                | Waiting x -> Waiting x
+                | Done x -> Done x     
+            let switch' = switch dones
+            let switched = p.ados |> List.map switch'
 
+            let (|NotComplete|Complete|) = function
+                | Ready _ | Running _ | Waiting _ -> NotComplete
+                | Done _ -> Complete
+            let categorize = (|NotComplete|Complete|)
+            let categorized = switched |> List.groupBy categorize |> Map.ofList
+        
+            let notDones = categorized.TryFind (Choice<unit,unit>.Choice1Of2())
+            let dones' = categorized.TryFind (Choice<unit,unit>.Choice2Of2())
+
+            match dones', notDones with
+            | Some(d), Some(n) -> {p with ados=n@d}
+            | Some(d), None -> {p with ados=d}
+            | None, _ -> failwith("this should never happen because dones shouldn't be empty")
+        
     static let tickTransform env =
         //this is where you tick by one ... if the process is done, then it leaves
         //the processor if all program's ados are waiting
         let processors = env.processors |> Map.map tickProcessor
-        let runnerAdos = 
+        let programsWithRunnerAdos = 
             processors
             |> Map.toSeq
             |> Seq.collect theRunners
             |> Set.ofSeq
             |> Set.map (fun r -> r.programId)
-        let waitAdos = 
+        let programsWithWaitAdos = 
             processors 
             |> Map.toSeq 
             |> Seq.collect theWaiters 
             |> Set.ofSeq
             |> Set.map (fun w -> w.programId)
-        let readyAdos = //what's still ready to start processing
+        let programsWithReadyAdos = //what's still ready to start processing
             env.programs 
             |> Map.toSeq 
             |> Seq.collect theReadies
             |> Set.ofSeq
             |> Set.map (fun r -> r.programId)
-        let newlyDoneIds = waitAdos - runnerAdos - readyAdos
-        let processors' = 
+        let newlyDones = 
+            programsWithWaitAdos - programsWithRunnerAdos - programsWithReadyAdos
+            |> Set.toList
+        if newlyDones.IsEmpty then Success({env with processors=processors; ticks=env.ticks+1})
+        else  
             processors 
-            |> Map.map (transformDones newlyDoneIds)
-            |> Map.map donesFirst 
-        Success({env with processors=processors'; ticks=env.ticks+1})
+            |> Map.map (fun k p -> transformDones newlyDones p)
+            |> (fun processors' -> Success({env with processors=processors'; ticks=env.ticks+1}))
 
     //region -- constructors, etc.
 
