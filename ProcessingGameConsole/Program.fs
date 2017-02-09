@@ -13,14 +13,15 @@ let envFromResult = function
     | Success(e) -> e
     | Result.Error(_, e) -> e
 
+let tryMatch f v =
+    match f with
+    | true -> Some(v)
+    | false -> None
+
 let readyAdoFromId id env =
     let readyMatch status p =
         match status with
-        | Ready ado -> 
-            let test = ado.id.ToString().StartsWith p
-            match test with
-            | true -> Some(ado)
-            | false -> None
+        | Ready ado -> tryMatch (ado.id.ToString().StartsWith p) ado
         | _ -> None
     env.programs 
     |> Map.toList
@@ -30,11 +31,7 @@ let readyAdoFromId id env =
 
 let processorFromId id env =
     env.processors
-    |> Map.tryPick (fun k v -> 
-        let result = k.ToString().StartsWith id
-        match result with
-        | true -> Some(v)
-        | false -> None)
+    |> Map.tryPick (fun k v -> tryMatch (k.ToString().StartsWith id) v)
 
 type UserRequest =
     | MoveUsing of Ado * Processor

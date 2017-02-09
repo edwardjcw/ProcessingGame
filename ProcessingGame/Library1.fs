@@ -145,62 +145,48 @@ type Game() =
 
     //order matters for processing, which is why dones are grouped together
     static let transformDones (dones : Guid list) p =
-        match dones.IsEmpty, p.ados.IsEmpty with
-        | _, true -> p
-        | true, _ -> p
-        | _, _ -> 
-            let switch ds = function
-                | Ready x -> Ready x
-                | Running x -> Running x
-                | Waiting x when ds |> List.exists (fun d -> d = x.programId) -> Done x
-                | Waiting x -> Waiting x
-                | Done x -> Done x     
-            let switch' = switch dones
-            let switched = p.ados |> List.map switch'
+        let switch ds = function
+            | Ready x -> Ready x
+            | Running x -> Running x
+            | Waiting x when ds |> List.exists (fun d -> d = x.programId) -> Done x
+            | Waiting x -> Waiting x
+            | Done x -> Done x     
+        let switched = p.ados |> List.map (switch dones)
 
-            let (|NotComplete|Complete|) = function
-                | Ready _ | Running _ | Waiting _ -> NotComplete
-                | Done _ -> Complete
-            let categorize = (|NotComplete|Complete|)
-            let categorized = switched |> List.groupBy categorize |> Map.ofList
+        let (|NotComplete|Complete|) = function
+            | Ready _ | Running _ | Waiting _ -> NotComplete
+            | Done _ -> Complete
+        let categorize = (|NotComplete|Complete|)
+        let categorized = switched |> List.groupBy categorize |> Map.ofList
         
-            let notDones = categorized.TryFind (Choice<unit,unit>.Choice1Of2())
-            let dones' = categorized.TryFind (Choice<unit,unit>.Choice2Of2())
+        let notDones = categorized.TryFind (Choice<unit,unit>.Choice1Of2())
+        let dones' = categorized.TryFind (Choice<unit,unit>.Choice2Of2())
 
-            match dones', notDones with
-            | Some(d), Some(n) -> {p with ados=n@d}
-            | Some(d), None -> {p with ados=d}
-            | None, _ -> failwith("this should never happen because dones shouldn't be empty")
-        
+        match dones', notDones with
+        | Some(d), Some(n) -> {p with ados=n@d}
+        | Some(d), None -> {p with ados=d}
+        | _, _ -> p
+    
+    static let filteredAdos condition extractor lat =
+        lat
+        |> Map.toSeq
+        |> Seq.collect condition
+        |> Set.ofSeq
+        |> Set.map extractor
+
     static let tickTransform env =
         //this is where you tick by one ... if the process is done, then it leaves
         //the processor if all program's ados are waiting
         let processors = env.processors |> Map.map tickProcessor
-        let programsWithRunnerAdos = 
-            processors
-            |> Map.toSeq
-            |> Seq.collect theRunners
-            |> Set.ofSeq
-            |> Set.map (fun r -> r.programId)
-        let programsWithWaitAdos = 
-            processors 
-            |> Map.toSeq 
-            |> Seq.collect theWaiters 
-            |> Set.ofSeq
-            |> Set.map (fun w -> w.programId)
-        let programsWithReadyAdos = //what's still ready to start processing
-            env.programs 
-            |> Map.toSeq 
-            |> Seq.collect theReadies
-            |> Set.ofSeq
-            |> Set.map (fun r -> r.programId)
         let newlyDones = 
-            programsWithWaitAdos - programsWithRunnerAdos - programsWithReadyAdos
+            filteredAdos theReadies (fun r -> r.programId) env.programs
+            |> (-) (filteredAdos theRunners (fun r -> r.programId) processors)
+            |> (-) (filteredAdos theWaiters (fun w -> w.programId) processors)
             |> Set.toList
         if newlyDones.IsEmpty then Success({env with processors=processors; ticks=env.ticks+1})
         else  
-            processors 
-            |> Map.map (fun k p -> transformDones newlyDones p)
+            processors
+            |> Map.map (fun k p -> if p.ados.IsEmpty then p else transformDones newlyDones p)
             |> (fun processors' -> Success({env with processors=processors'; ticks=env.ticks+1}))
 
     //region -- constructors, etc.
