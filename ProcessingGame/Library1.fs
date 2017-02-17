@@ -133,7 +133,6 @@ type Game() =
     //the ados that are waiting 
     static let theWaiters (k, p) =
         p.ados
-        //note ... there can be more than one waiting in a process
         |> List.choose (fun x->match x with | Waiting w -> Some(w) | _ -> None)
         |> Set.ofList
 
@@ -167,53 +166,54 @@ type Game() =
         | Some(d), None -> {p with ados=d}
         | _, _ -> p
     
-    static let filteredAdos condition extractor lat =
+    static let filteredAdos condition lat =
         lat
         |> Map.toSeq
         |> Seq.collect condition
         |> Set.ofSeq
-        |> Set.map extractor
+        |> Set.map (fun r -> r.programId)
 
     static let tickTransform env =
         //this is where you tick by one ... if the process is done, then it leaves
         //the processor if all program's ados are waiting
         let processors = env.processors |> Map.map tickProcessor
         let newlyDones = 
-            filteredAdos theReadies (fun r -> r.programId) env.programs
-            |> (-) (filteredAdos theRunners (fun r -> r.programId) processors)
-            |> (-) (filteredAdos theWaiters (fun w -> w.programId) processors)
+            filteredAdos theReadies env.programs
+            |> (-) (filteredAdos theRunners processors)
+            |> (-) (filteredAdos theWaiters processors)
             |> Set.toList
-        if newlyDones.IsEmpty then Success({env with processors=processors; ticks=env.ticks+1})
-        else  
+        match newlyDones.IsEmpty with
+        | true -> Success({env with processors=processors; ticks=env.ticks+1})
+        | false ->   
             processors
-            |> Map.map (fun k p -> if p.ados.IsEmpty then p else transformDones newlyDones p)
+            |> Map.map (fun _ p -> if p.ados.IsEmpty then p else transformDones newlyDones p)
             |> (fun processors' -> Success({env with processors=processors'; ticks=env.ticks+1}))
 
     //region -- constructors, etc.
 
-    static member emptyProgram =
+    static member EmptyProgram =
         {id=Guid.NewGuid(); size=0; readyAdos=Map.empty}
 
-    static member programWithAdo adoSize program =
+    static member ProgramWithAdo adoSize program =
         let ado = {id=Guid.NewGuid(); size=adoSize; adone=0; programId=program.id}
         {program with readyAdos=program.readyAdos.Add(ado.id, Ready(ado));  size=program.size+ado.size}
      
-    static member emptyProcessor size power =
+    static member EmptyProcessor size power =
         {id=Guid.NewGuid(); size=size; ados=[]; power=power}
 
-    static member emptyEnvironment =
+    static member EmptyEnvironment =
         {programs=Map.empty; processors=Map.empty; ticks=0}
 
-    static member buildMoveRequest ado processor =
+    static member BuildMoveRequest ado processor =
         Move(ado,processor)
 
-    static member buildTickRequest amount =
+    static member BuildTickRequest amount =
         Tick(amount)
 
-    static member buildEndRequest =
+    static member BuildEndRequest =
         End
 
-    static member transform request env =
+    static member Transform request env =
         match request with
         | Move(ado, processor) -> moveTransform ado processor env
         | Tick(n) -> tickTransform env

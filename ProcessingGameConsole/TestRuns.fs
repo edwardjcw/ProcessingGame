@@ -4,27 +4,27 @@ open System
 
 type TestRuns() =
     static let processors = 
-        (Seq.initInfinite (fun i -> Game.emptyProcessor 10 1)) 
+        (Seq.initInfinite (fun i -> Game.EmptyProcessor 10 1)) 
         |> Seq.take 5
         |> Seq.map (fun p -> (p.id, p)) 
         |> Map.ofSeq
 
     static let programs = 
-        (Seq.initInfinite (fun i -> Game.emptyProgram)) 
+        (Seq.initInfinite (fun i -> Game.EmptyProgram)) 
         |> Seq.take 3
-        |> Seq.map (fun p -> Game.programWithAdo 2 p)
-        |> Seq.map (fun p -> Game.programWithAdo 3 p)
+        |> Seq.map (fun p -> Game.ProgramWithAdo 2 p)
+        |> Seq.map (fun p -> Game.ProgramWithAdo 3 p)
         |> Seq.map (fun p -> (p.id,p)) 
         |> Map.ofSeq
 
-    static let env = {Game.emptyEnvironment with programs=programs; processors=processors}
+    static let env = {Game.EmptyEnvironment with programs=programs; processors=processors}
 
     static let oneTick = TimeSpan.FromSeconds(1.0)
 
     static member testRuns =
 
         //test one tick empty
-        let outcome = Game.transform (Tick oneTick) env
+        let outcome = Game.Transform (Tick oneTick) env
         let expected = Success({env with ticks=1})
         let assertion = outcome=expected
         printfn "%b" assertion
@@ -78,7 +78,7 @@ type TestRuns() =
         let move a proc lastOutput =
             match lastOutput with
             | Success(e) -> 
-                let ot = Game.transform (Move (a, proc)) e
+                let ot = Game.Transform (Move (a, proc)) e
                 printfn "%A" ot
                 ot
             | Error(p,e) -> failwith(p)        
@@ -89,11 +89,11 @@ type TestRuns() =
                 | Success (e) -> e
                 | Error(p,e) -> failwith(p)
          
-            let output' = Game.transform (Tick oneTick) env'
+            let output' = Game.Transform (Tick oneTick) env'
             printfn "tick %A" output'
             output'
 
-        let output = Game.transform (Move (ado3, aProcessor)) env
+        let output = Game.Transform (Move (ado3, aProcessor)) env
         printfn "%A" output
 
         output

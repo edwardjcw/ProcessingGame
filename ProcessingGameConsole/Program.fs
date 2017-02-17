@@ -50,7 +50,7 @@ type GameInterface() =
             | Success (e) -> e
             | Result.Error(p,e) -> failwith(p)
          
-        let output' = Game.transform (Tick (TimeSpan.FromSeconds 1.0)) env'
+        let output' = Game.Transform (Tick (TimeSpan.FromSeconds 1.0)) env'
         output'
  
     static let interpretInput (input : string) result =
@@ -58,13 +58,13 @@ type GameInterface() =
         let env = envFromResult result
         match input' with
         | [] -> FullEnvironment(UserRequest.Error "Nothing entered", result)
-        | (Int f)::[] -> 
+        | [(Int f)] -> 
             if f > 0 then FullEnvironment(TickAmount f, result)
             else FullEnvironment(UserRequest.Error "Ticks msut be greater than 0", result)
-        | "s"::[] -> FullEnvironment(Status, result)
-        | "e"::[] -> FullEnvironment(Exit, result)
-        | "i"::[] -> FullEnvironment(Help, result)
-        | p::r::[] -> 
+        | ["s"] -> FullEnvironment(Status, result)
+        | ["e"] -> FullEnvironment(Exit, result)
+        | ["i"] -> FullEnvironment(Help, result)
+        | p::[r] -> 
             let ado, processor = readyAdoFromId p env, processorFromId r env
             match ado, processor with
             | Some(ado'), Some(processor') ->  
@@ -91,14 +91,14 @@ type GameInterface() =
         let introIntro = "**To bring up this dialog again, press i"
         String.Join("\n", processIntro, processIntroHint, processIntroNote, processorIntro, moveIntro, moveIntroExample, moveIntroSuccess, tickIntro, exitIntro, statusIntro, introIntro);
 
-    static member play env = 
+    static member Play env = 
         let rec looper result = seq {
             let input = Console.ReadLine()
             let (FullEnvironment (request, result')) = interpretInput input result
             match request with
             | Exit -> yield ()
             | MoveUsing(ado, processor) ->
-                yield! looper (Game.transform (Move (ado, processor)) (envFromResult result'))
+                yield! looper (Game.Transform (Move (ado, processor)) (envFromResult result'))
             | (TickAmount a) -> 
                 let rec tick' last a' = seq {
                     let latest = tick last
@@ -118,21 +118,22 @@ let main argv =
     printfn "%s" GameInterface.intro
     
     let processors = 
-        (Seq.initInfinite (fun i -> Game.emptyProcessor 10 1)) 
+        (Seq.initInfinite (fun i -> Game.EmptyProcessor 10 1)) 
         |> Seq.take 5
         |> Seq.map (fun p -> (p.id, p)) 
         |> Map.ofSeq
 
     let programs = 
-        (Seq.initInfinite (fun i -> Game.emptyProgram)) 
+        (Seq.initInfinite (fun i -> Game.EmptyProgram)) 
         |> Seq.take 3
-        |> Seq.map (fun p -> Game.programWithAdo 2 p)
-        |> Seq.map (fun p -> Game.programWithAdo 3 p)
-        |> Seq.map (fun p -> (p.id,p)) 
+        |> Seq.map (
+            (fun p ->Game.ProgramWithAdo 2 p)
+            >> (fun p ->Game.ProgramWithAdo 3 p)
+            >> (fun p ->p.id,p))
         |> Map.ofSeq
 
-    let mainEnv = {Game.emptyEnvironment with programs=programs; processors=processors}
+    let mainEnv = {Game.EmptyEnvironment with programs=programs; processors=processors}
 
-    GameInterface.play (Success mainEnv) |> ignore
+    GameInterface.Play (Success mainEnv) |> ignore
     Console.ReadKey() |> ignore
     0 // return an integer exit code
