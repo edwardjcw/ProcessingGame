@@ -81,13 +81,13 @@ type TestRuns() =
                 let ot = Game.Transform (Move (a, proc)) e
                 printfn "%A" ot
                 ot
-            | Error(p,e) -> failwith(p)        
+            | Result.Error(p,e) -> failwith(p)        
 
         let tick lastOutput =
             let env' = 
                 match lastOutput with
                 | Success (e) -> e
-                | Error(p,e) -> failwith(p)
+                | Result.Error(p,e) -> failwith(p)
          
             let output' = Game.Transform (Tick oneTick) env'
             printfn "tick %A" output'

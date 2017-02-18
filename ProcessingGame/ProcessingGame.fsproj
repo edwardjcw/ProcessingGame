@@ -44,7 +44,9 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="AssemblyInfo.fs" />
-    <Compile Include="Library1.fs" />
+    <Compile Include="ProcessingGameLibrary.fs" />
+    <Compile Include="ProcessingGameInterface.fs" />
+    <Compile Include="EnvironmentBuilder.fs" />
     <None Include="Script.fsx" />
   </ItemGroup>
   <PropertyGroup>
