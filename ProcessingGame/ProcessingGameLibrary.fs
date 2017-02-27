@@ -178,9 +178,7 @@ type Game() =
         //the processor if all program's ados are waiting
         let processors = env.processors |> Map.map tickProcessor
         let newlyDones = 
-            filteredAdos theReadies env.programs
-            |> (-) (filteredAdos theRunners processors)
-            |> (-) (filteredAdos theWaiters processors)
+            (filteredAdos theWaiters processors) - (filteredAdos theRunners processors) - (filteredAdos theReadies env.programs)
             |> Set.toList
         match newlyDones.IsEmpty with
         | true -> Success({env with processors=processors; ticks=env.ticks+1})
